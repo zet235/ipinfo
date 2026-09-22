@@ -1,0 +1,36 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "ipinfo",
+  "title": "IP Info",
+  "description": "Public IP from ip.zet.tw plus local Wi-Fi, Ethernet and VPN addresses",
+  "icon": "icon.png",
+  "author": "zet235",
+  "license": "MIT",
+  "type": "module",
+  "commands": [
+    {
+      "name": "ipinfo",
+      "title": "ipinfo",
+      "description": "Public IP, ASN, location and local interface addresses",
+      "mode": "view"
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^2.4.1"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^2.0.4",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.10",
+    "eslint": "^9.22.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.2"
+  },
+  "scripts": {
+    "build": "ray build -e dist -o build",
+    "lint": "ray lint",
+    "fix-lint": "ray lint --fix",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/"
+  }
+}
