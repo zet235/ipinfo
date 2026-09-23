@@ -1,34 +1,110 @@
-# ipinfo
+<p align="center">
+  <img src="assets/icon.png" width="96" alt="ipinfo icon">
+</p>
 
-Raycast / Tinycast extension. One command, `ipinfo`, lists:
+<h1 align="center">ipinfo</h1>
 
-- Public IP, ASN + org, and city/country from <https://ip.zet.tw/json>
-- Wi-Fi: IPv4, SSID, router
-- Ethernet: IPv4
-- VPN (WireGuard, Cloudflare WARP, IPSec, …): IPv4, the connected profile name, and a "default route" tag on the primary interface
-- Other interfaces with an IPv4 (unnamed `utun*`, VM `bridge*`, …)
+<p align="center">
+  Your public IP, every local address and which VPN is up — in one launcher command.<br>
+  A <a href="https://www.raycast.com">Raycast</a> / <a href="https://github.com/abue-ammar/tinycast">Tinycast</a> extension for macOS.
+</p>
 
-Enter copies the highlighted value; ⌘⇧C copies everything as text.
+<p align="center">
+  <a href="https://github.com/zet235/ipinfo/actions/workflows/ci.yml"><img src="https://github.com/zet235/ipinfo/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/platform-macOS-lightgrey" alt="macOS">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
+</p>
 
-## Build
+<p align="center">
+  <img src="media/screenshot.png" width="720" alt="ipinfo showing public IP, Wi-Fi, WireGuard and Cloudflare WARP rows">
+  <br><sub>Example data.</sub>
+</p>
 
-    npm install
-    npm run build        # → build/  (ray build -e dist -o build)
-    npm test             # node --test, no network or root needed
-    npm run lint
+## Features
+
+| | |
+|---|---|
+| 🌐 **Public** | IP, ASN + org, city/country from [ip.zet.tw](https://ip.zet.tw/json) |
+| 📶 **Wi-Fi** | IPv4, SSID and router |
+| 🔌 **Ethernet** | IPv4 for every wired adapter |
+| 🛡️ **VPN** | WireGuard, Cloudflare WARP (Zero Trust org), IPSec… with the profile name and a green **Connected** badge |
+| 🧭 **Default route** | A tag on the interface your traffic actually leaves through |
+| ⋯ **Other** | Remaining interfaces with an IPv4 (unnamed `utun*`, VM `bridge*`, …) |
+
+- <kbd>↵</kbd> copies the highlighted value.
+- <kbd>⌘</kbd><kbd>⇧</kbd><kbd>C</kbd> copies the whole screen as plain text:
+
+```text
+Public IP: 203.0.113.10
+ASN: AS64496
+Org: Example Fiber Networks Ltd.
+Location: Taipei, Taiwan (TW)
+Wi-Fi (en0): 192.168.0.42 [SSID ExampleWiFi, Router 192.168.0.1]
+WireGuard (utun4): 10.8.0.2 [Profile office-vpn]
+Cloudflare WARP (utun5): 172.16.0.2 [Profile example-team]
+bridge100: 172.30.31.3
+```
 
 ## Install
 
-- **Tinycast**: Settings → Extensions → Install → Add Folder… → `build/`.
-  Rebuild + re-add after changes (Tinycast has no hot reload).
-- **Raycast**: `npx ray develop` from the project root.
+```sh
+git clone https://github.com/zet235/ipinfo.git
+cd ipinfo
+npm install
+npm run build          # → build/
+```
 
-Local data comes from `networksetup -listallhardwareports`, `ifconfig`,
-`ipconfig getsummary <wifi-device>`, `scutil` (`--nc list/status` for VPN profiles,
-`State:/Network/Service/*` for system-extension tunnels such as Cloudflare WARP,
-`State:/Network/Global/IPv4` for the default route) and `warp-cli registration show`
-for the Zero Trust org; none need sudo.
+- **Tinycast** — Settings → Extensions → Install → **Add Folder…** → `build/`.
+  Tinycast copies the folder, so rebuild and add it again after changes.
+- **Raycast** — `npx ray develop` from the project root.
 
-Every tool is invoked by absolute path (`/usr/sbin`, `/sbin`), never through `PATH`,
-so a GUI host's environment cannot substitute a different binary; `warp-cli` is read
-from `/usr/local/bin` only, and the extension works without it.
+## How it works
+
+Everything local comes from built-in macOS tools, run without a shell and without sudo:
+
+| Data | Source |
+|---|---|
+| Interfaces + IPv4 | `/sbin/ifconfig` |
+| Wi-Fi / Ethernet names | `/usr/sbin/networksetup -listallhardwareports` |
+| SSID, router | `/usr/sbin/ipconfig getsummary <wifi>` |
+| VPN profiles | `/usr/sbin/scutil --nc list` / `--nc status <id>` |
+| System-extension tunnels (WARP) | `scutil` → `State:/Network/Service/*/IPv4` |
+| Default route | `scutil` → `State:/Network/Global/IPv4` |
+| Zero Trust org | `/usr/local/bin/warp-cli registration show` (optional) |
+
+Each tool is called by absolute path with a 2 s hard timeout and a 1 MiB output cap, so a
+wedged daemon can't freeze the launcher. Every lookup except `ifconfig` is best-effort: if
+one fails, that detail is dropped and the rest still render.
+
+## Privacy
+
+- The only network request is `GET https://ip.zet.tw/json` (no cookies, no custom headers,
+  redirects refused, body capped at 64 KiB).
+- Nothing is written to disk, cached or logged; values reach the clipboard only when you copy.
+- Control and bidi characters are stripped from every displayed or copied string, so a
+  hostile SSID or GeoIP name can't smuggle escape sequences into your terminal.
+
+## Development
+
+```sh
+npm test          # node --test — parsers run on captured fixtures, no network or root
+npm run typecheck
+npm run lint      # ray lint (one accepted warning: the lowercase `ipinfo` title)
+npm run build
+```
+
+Requires Node 22.18+ (native TypeScript type stripping for the tests); CI runs on
+macOS with Node 26.
+
+```text
+src/
+  ipinfo.tsx       the List — layout only, the one file importing @raycast/api
+  lib/public.ts    ip.zet.tw fetch + validation
+  lib/local.ts     subprocess runner, parsers, interface/VPN detection
+  lib/format.ts    rows and copy-all text (pure, sanitised)
+test/              node --test suites
+```
+
+## License
+
+MIT
