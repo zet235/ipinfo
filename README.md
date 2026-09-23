@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon.png" width="96" alt="ipinfo icon">
+  <img src="extensions/ipinfo/assets/icon.png" width="96" alt="ipinfo icon">
 </p>
 
 <h1 align="center">ipinfo</h1>
@@ -45,16 +45,26 @@ bridge100: 172.30.31.3
 
 ## Install
 
+### Tinycast — from GitHub
+
+This repository is a Tinycast registry (laid out like `raycast/extensions`, one folder per extension).
+
+1. Settings → Extensions → Registries → **Add Registry…** → `https://github.com/zet235/ipinfo`
+2. Install → search **ipinfo** → install. Tinycast downloads `extensions/ipinfo` and builds it locally.
+
+To update, install it again from the same search.
+
+### From source
+
 ```sh
 git clone https://github.com/zet235/ipinfo.git
-cd ipinfo
+cd ipinfo/extensions/ipinfo
 npm install
 npm run build          # → build/
 ```
 
-- **Tinycast** — Settings → Extensions → Install → **Add Folder…** → `build/`.
-  Tinycast copies the folder, so rebuild and add it again after changes.
-- **Raycast** — `npx ray develop` from the project root.
+- **Tinycast** — Settings → Extensions → Install → **Add Folder…** → `extensions/ipinfo/build`.
+- **Raycast** — `npx ray develop` from `extensions/ipinfo`.
 
 ## How it works
 
@@ -85,6 +95,7 @@ one fails, that detail is dropped and the rest still render.
 ## Development
 
 ```sh
+cd extensions/ipinfo
 npm test          # node --test — parsers run on captured fixtures, no network or root
 npm run typecheck
 npm run lint      # ray lint (one accepted warning: the lowercase `ipinfo` title)
@@ -95,12 +106,13 @@ Requires Node 22.18+ (native TypeScript type stripping for the tests); CI runs o
 macOS with Node 26.
 
 ```text
-src/
-  ipinfo.tsx       the List — layout only, the one file importing @raycast/api
-  lib/public.ts    ip.zet.tw fetch + validation
-  lib/local.ts     subprocess runner, parsers, interface/VPN detection
-  lib/format.ts    rows and copy-all text (pure, sanitised)
-test/              node --test suites
+extensions/ipinfo/
+  src/ipinfo.tsx       the List — layout only, the one file importing @raycast/api
+  src/lib/public.ts    ip.zet.tw fetch + validation
+  src/lib/local.ts     subprocess runner, parsers, interface/VPN detection
+  src/lib/format.ts    rows and copy-all text (pure, sanitised)
+  test/                node --test suites
+media/                 README screenshot
 ```
 
 ## License
