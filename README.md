@@ -54,7 +54,24 @@ This repository is a Tinycast registry (laid out like `raycast/extensions`, one 
 
 To update, install it again from the same search.
 
-### From source
+### Raycast
+
+Not published to the Raycast Store — install it from source:
+
+```sh
+git clone https://github.com/zet235/ipinfo.git
+cd ipinfo/extensions/ipinfo
+npm install
+npx ray develop
+```
+
+Raycast imports the extension and opens it; search **ipinfo**. It stays installed after you stop
+`ray develop` with <kbd>Ctrl</kbd>+<kbd>C</kbd>. To update, `git pull` and run `npx ray develop` again.
+
+Alternatively, after `npm install`, run Raycast's **Import Extension** command and pick the
+`extensions/ipinfo` folder.
+
+### Tinycast — from source
 
 ```sh
 git clone https://github.com/zet235/ipinfo.git
@@ -63,8 +80,7 @@ npm install
 npm run build          # → build/
 ```
 
-- **Tinycast** — Settings → Extensions → Install → **Add Folder…** → `extensions/ipinfo/build`.
-- **Raycast** — `npx ray develop` from `extensions/ipinfo`.
+Settings → Extensions → Install → **Add Folder…** → `extensions/ipinfo/build`.
 
 ## How it works
 
