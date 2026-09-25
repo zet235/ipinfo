@@ -7,7 +7,7 @@ export type PublicState =
 export type LocalState =
   { status: "loading" } | { status: "ok"; ifaces: LocalInterface[] } | { status: "error"; message: string };
 
-export type RowIcon = "ip" | "asn" | "location" | "error" | "wifi" | "ethernet" | "vpn" | "other";
+export type RowIcon = "ip" | "asn" | "location" | "error" | "wifi" | "ethernet" | "tether" | "vpn" | "other";
 
 export interface Row {
   key: string;

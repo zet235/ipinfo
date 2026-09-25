@@ -152,7 +152,7 @@ const namesInterface = (device: string) => `<dictionary> {
 interface Stubs {
   networksetup?: string;
   ifconfig?: string;
-  ipconfig?: string;
+  ipconfig?: string | Record<string, string>;
   ncList?: string;
   ncStatus?: Record<string, string>;
   serviceList?: string;
@@ -172,7 +172,10 @@ function stubRunner(stubs: Stubs, calls: string[] = []): Runner {
     calls.push([tool, ...args, ...(input ? [`<${input.trim()}`] : [])].join(" "));
     if (tool === "networksetup" && stubs.networksetup !== undefined) return stubs.networksetup;
     if (tool === "ifconfig" && stubs.ifconfig !== undefined) return stubs.ifconfig;
-    if (tool === "ipconfig" && stubs.ipconfig !== undefined) return stubs.ipconfig;
+    if (tool === "ipconfig") {
+      const out = typeof stubs.ipconfig === "string" ? stubs.ipconfig : stubs.ipconfig?.[args[1]];
+      if (out !== undefined) return out;
+    }
     if (tool === "warp-cli" && stubs.warp !== undefined) return stubs.warp;
     if (tool === "scutil") {
       if (args[1] === "list" && stubs.ncList !== undefined) return stubs.ncList;
@@ -267,10 +270,102 @@ test("parseWifiSummary tolerates missing fields", () => {
   assert.deepEqual(parseWifiSummary("<dictionary> {\n}\n"), {});
 });
 
+const ETHERNET_SUMMARY = `<dictionary> {
+  Hashed-BSSID : <data> 0x00
+  InterfaceType : Ethernet
+  IPv4 : <array> {
+    0 : <dictionary> {
+      Addresses : <array> {
+        0 : 10.0.0.5
+      }
+      Router : 10.0.0.1
+    }
+  }
+}
+`;
+
+// Captured shape of `networksetup` / `ifconfig` / `ipconfig` while an iPhone shares its connection over USB.
+const HW_TETHER = `
+Hardware Port: Wi-Fi
+Device: en0
+Ethernet Address: 00:00:00:00:00:00
+
+Hardware Port: iPhone USB
+Device: en6
+Ethernet Address: 00:00:00:00:00:06
+`;
+
+const IFCONFIG_TETHER = `en6: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+\tinet 172.20.10.4 netmask 0xfffffff0 broadcast 172.20.10.15
+\tstatus: active
+en16: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+\tether 00:00:00:00:00:16
+\tinet 169.254.169.235 netmask 0xffff0000 broadcast 169.254.255.255
+\tstatus: active
+en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+\tinet 169.254.12.34 netmask 0xffff0000 broadcast 169.254.255.255
+\tstatus: active
+bridge100: flags=8a63<UP,BROADCAST,SMART,RUNNING,ALLMULTI,SIMPLEX,MULTICAST> mtu 1500
+\tinet 172.30.31.3 netmask 0xfffffe00 broadcast 172.30.31.255
+`;
+
+const TETHER_SUMMARY = `<dictionary> {
+  InterfaceType : Ethernet
+  IPv4 : <array> {
+    0 : <dictionary> {
+      Addresses : <array> {
+        0 : 172.20.10.4
+      }
+      Router : 172.20.10.1
+      RouterARPVerified : TRUE
+    }
+  }
+}
+`;
+
+test("iPhone USB tethering is its own kind with its router; unnamed link-local noise is dropped", async () => {
+  const run = stubRunner({
+    networksetup: HW_TETHER,
+    ifconfig: IFCONFIG_TETHER,
+    ipconfig: { en6: TETHER_SUMMARY, en0: "<dictionary> {\n}\n" },
+    globalIpv4: "  PrimaryInterface : en6\n",
+  });
+  assert.deepEqual(await getLocalInterfaces(run), [
+    // a named Wi-Fi port keeps its self-assigned address: it says "no DHCP lease"
+    { device: "en0", kind: "wifi", label: "Wi-Fi", ipv4: "169.254.12.34" },
+    {
+      device: "en6",
+      kind: "tether",
+      label: "iPhone USB",
+      ipv4: "172.20.10.4",
+      router: "172.20.10.1",
+      primary: true,
+    },
+    { device: "bridge100", kind: "other", label: "bridge100", ipv4: "172.30.31.3" },
+  ]);
+});
+
+test("an unnamed link-local interface is kept when it carries the default route", async () => {
+  const run = stubRunner({
+    networksetup: HW_TETHER,
+    ifconfig: IFCONFIG_TETHER,
+    ipconfig: { en6: TETHER_SUMMARY, en0: "<dictionary> {\n}\n" },
+    globalIpv4: "  PrimaryInterface : en16\n",
+  });
+  const en16 = (await getLocalInterfaces(run)).find((i) => i.device === "en16");
+  assert.deepEqual(en16, { device: "en16", kind: "other", label: "en16", ipv4: "169.254.169.235", primary: true });
+});
+
 test("getLocalInterfaces orders wifi, ethernet, vpn, other and enriches wifi and vpn", async () => {
   const calls: string[] = [];
   const run = stubRunner(
-    { networksetup: HW, ifconfig: IFCONFIG, ipconfig: SUMMARY, ncList: NC_LIST, ncStatus: { [WG_ID]: NC_STATUS } },
+    {
+      networksetup: HW,
+      ifconfig: IFCONFIG,
+      ipconfig: { en0: SUMMARY, en3: ETHERNET_SUMMARY },
+      ncList: NC_LIST,
+      ncStatus: { [WG_ID]: NC_STATUS },
+    },
     calls,
   );
   assert.deepEqual(await getLocalInterfaces(run), [
@@ -282,11 +377,13 @@ test("getLocalInterfaces orders wifi, ethernet, vpn, other and enriches wifi and
       ssid: "ExampleWiFi",
       router: "192.168.0.1",
     },
-    { device: "en3", kind: "ethernet", label: "Ethernet Adapter (en3)", ipv4: "10.0.0.5" },
+    { device: "en3", kind: "ethernet", label: "Ethernet Adapter (en3)", ipv4: "10.0.0.5", router: "10.0.0.1" },
     { device: "utun4", kind: "vpn", label: "WireGuard", ipv4: "100.64.0.9", profile: "office-vpn" },
     { device: "bridge100", kind: "other", label: "bridge100", ipv4: "172.30.31.3" },
   ]);
   assert.ok(calls.includes("ipconfig getsummary en0"));
+  assert.ok(calls.includes("ipconfig getsummary en3"));
+  assert.ok(!calls.includes("ipconfig getsummary bridge100"));
 });
 
 test("getLocalInterfaces labels a Cloudflare WARP tunnel from the named service", async () => {

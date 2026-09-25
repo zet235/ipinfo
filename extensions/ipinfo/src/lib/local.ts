@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 
-export type InterfaceKind = "wifi" | "ethernet" | "vpn" | "other";
+export type InterfaceKind = "wifi" | "ethernet" | "tether" | "vpn" | "other";
 
 export interface LocalInterface {
   device: string;
@@ -196,11 +196,16 @@ export function parseWarpOrganization(text: string): string | undefined {
 function kindOf(portName: string | undefined): InterfaceKind {
   if (!portName) return "other";
   if (/Wi-Fi/i.test(portName)) return "wifi";
+  // "iPhone USB", "iPad USB", "Bluetooth PAN": a phone sharing its cellular connection
+  if (/iPhone|iPad|Bluetooth PAN/i.test(portName)) return "tether";
   if (/Ethernet/i.test(portName)) return "ethernet";
   return "other";
 }
 
-const ORDER: Record<InterfaceKind, number> = { wifi: 0, ethernet: 1, vpn: 2, other: 3 };
+const ORDER: Record<InterfaceKind, number> = { wifi: 0, ethernet: 1, tether: 2, vpn: 3, other: 4 };
+
+/** Self-assigned 169.254/16: the device got no DHCP lease, so the address is useless to copy. */
+const LINK_LOCAL = /^169\.254\./;
 
 /** Named services we are willing to label; anything else stays a generic "VPN". */
 const NAMED_SERVICES: [RegExp, string][] = [[/^CloudflareWARP$/i, "Cloudflare WARP"]];
@@ -286,7 +291,7 @@ export async function getLocalInterfaces(run: Runner = defaultRunner): Promise<L
   const vpns = await vpnsByDevice(run, fulfilled(ncList), fulfilled(serviceList));
 
   const result: LocalInterface[] = [];
-  const wifiDevices: string[] = [];
+  const summaryDevices: string[] = [];
   for (const [device, ipv4] of addrs) {
     const vpn = vpns.get(device);
     if (vpn) {
@@ -299,17 +304,20 @@ export async function getLocalInterfaces(run: Runner = defaultRunner): Promise<L
     }
     const port = ports.get(device);
     const kind = kindOf(port);
+    // Unnamed link-local interfaces (an iPhone's companion link, idle adapters) are noise; on a
+    // named Wi-Fi/Ethernet port the same address is a useful "no DHCP lease" signal, so keep it.
+    if (kind === "other" && LINK_LOCAL.test(ipv4) && device !== primary) continue;
     const iface: LocalInterface = { device, kind, label: port ?? device, ipv4 };
     if (device === primary) iface.primary = true;
-    if (kind === "wifi") wifiDevices.push(device);
+    if (kind !== "other") summaryDevices.push(device);
     result.push(iface);
   }
 
-  const summaries = await Promise.allSettled(wifiDevices.map((d) => run(IPCONFIG, ["getsummary", d])));
+  const summaries = await Promise.allSettled(summaryDevices.map((d) => run(IPCONFIG, ["getsummary", d])));
   summaries.forEach((res, i) => {
-    // ipconfig is best-effort; the IP row is still useful without SSID
+    // ipconfig is best-effort; the IP row is still useful without SSID or router
     if (res.status !== "fulfilled") return;
-    const iface = result.find((x) => x.device === wifiDevices[i]);
+    const iface = result.find((x) => x.device === summaryDevices[i]);
     if (iface) Object.assign(iface, parseWifiSummary(res.value));
   });
 

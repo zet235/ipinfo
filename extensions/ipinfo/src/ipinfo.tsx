@@ -21,12 +21,18 @@ const ICONS: Record<RowIcon, Icon> = {
   error: Icon.Warning,
   wifi: Icon.Wifi,
   ethernet: Icon.Plug,
+  tether: Icon.Mobile,
   vpn: Icon.Shield,
   other: Icon.Dot,
 };
 
 const TINTS: Partial<Record<RowIcon, Color>> = { vpn: Color.Green, error: Color.Orange };
-const TAG_COLORS: Partial<Record<RowIcon, Color>> = { vpn: Color.Green, wifi: Color.Blue, ethernet: Color.Blue };
+const TAG_COLORS: Partial<Record<RowIcon, Color>> = {
+  vpn: Color.Green,
+  wifi: Color.Blue,
+  ethernet: Color.Blue,
+  tether: Color.Blue,
+};
 const CONNECTED: List.Item.Accessory = {
   icon: { source: Icon.CircleFilled, tintColor: Color.Green },
   text: { value: "Connected", color: Color.Green },

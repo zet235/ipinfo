@@ -24,7 +24,8 @@
 
 - **Public** — IP, ASN + org, city/country from [ip.zet.tw](https://ip.zet.tw/json)
 - **Wi-Fi** — IPv4, SSID and router
-- **Ethernet** — IPv4 for every wired adapter
+- **Ethernet** — IPv4 and router for every wired adapter
+- **iPhone / iPad tethering** — USB or Bluetooth Personal Hotspot, with its router
 - **VPN** — WireGuard, Cloudflare WARP (Zero Trust org), IPSec… with the profile name and a green **Connected** badge
 - **Default route** — a tag on the interface your traffic actually leaves through
 - **Other** — remaining interfaces with an IPv4 (unnamed `utun*`, VM `bridge*`, …)
