@@ -16,11 +16,11 @@ import {
 
 const ICONS: Record<RowIcon, Icon> = {
   ip: Icon.Globe,
-  asn: Icon.Network,
+  asn: Icon.Hashtag,
   location: Icon.Pin,
   error: Icon.Warning,
   wifi: Icon.Wifi,
-  ethernet: Icon.Plug,
+  ethernet: Icon.Network,
   tether: Icon.Mobile,
   vpn: Icon.Shield,
   other: Icon.Dot,
