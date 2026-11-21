@@ -348,8 +348,9 @@ export async function getLocalInterfaces(run: Runner = defaultRunner): Promise<L
 
 // MARK: - Traffic
 
-/** Gap between the two counter samples a rate is measured over. */
-const INTERVAL_MS = 1000;
+/** The first rate comes quickly; after that the rows refresh at a calmer pace while the view is open. */
+const FIRST_RATE_MS = 1000;
+const REFRESH_MS = 3000;
 
 interface Counters {
   rx: number;
@@ -380,33 +381,19 @@ export function parseNetstat(text: string): Map<string, Counters> {
   return counters;
 }
 
-interface MeasureOptions {
-  sleep?: (ms: number) => Promise<void>;
-  now?: () => number;
+interface Sample {
+  at: number;
+  counters: Map<string, Counters>;
 }
 
-/** Samples the counters twice, INTERVAL_MS apart, and returns each interface's current rate. */
-export async function measureRates(
-  run: Runner = defaultRunner,
-  options: MeasureOptions = {},
-): Promise<Map<string, Rate>> {
-  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  // Date.now, not performance.now: the Tinycast host is not Node and may lack `performance`.
-  const now = options.now ?? Date.now;
-
-  // Stamp each sample as its netstat starts, so a late exit on a busy host skews neither end, and
-  // divide by the time that really passed: the sleep timer can wake late too.
-  const start = now();
-  const before = parseNetstat(await run(NETSTAT, ["-ibn"]));
-  await sleep(INTERVAL_MS);
-  const end = now();
-  const after = parseNetstat(await run(NETSTAT, ["-ibn"]));
-  const seconds = (end - start) / 1000;
-
+/** Bytes per second between two samples; an interface missing from either, or whose counter went backwards, is left out. */
+function ratesBetween(before: Sample, after: Sample): Map<string, Rate> {
   const rates = new Map<string, Rate>();
+  // Divide by the time that really passed: timers wake late on a busy host.
+  const seconds = (after.at - before.at) / 1000;
   if (seconds <= 0) return rates;
-  for (const [device, latest] of after) {
-    const begin = before.get(device);
+  for (const [device, latest] of after.counters) {
+    const begin = before.counters.get(device);
     if (!begin) continue;
     const down = latest.rx - begin.rx;
     const up = latest.tx - begin.tx;
@@ -415,4 +402,67 @@ export async function measureRates(
     rates.set(device, { down: down / seconds, up: up / seconds });
   }
   return rates;
+}
+
+interface WatchOptions {
+  now?: () => number;
+  /** Runs `fn` after `ms` and returns a canceller; setTimeout by default. */
+  schedule?: (fn: () => void, ms: number) => () => void;
+}
+
+/**
+ * Samples the counters now, after FIRST_RATE_MS, then every REFRESH_MS, and reports each interface's
+ * rate against the last good sample. A failed sample reports an empty map (no rates). Returns a stop
+ * function that cancels the pending timer and silences any sample in flight.
+ */
+export function watchRates(
+  onRates: (rates: Map<string, Rate>) => void,
+  run: Runner = defaultRunner,
+  options: WatchOptions = {},
+): () => void {
+  // Date.now, not performance.now: the Tinycast host is not Node and may lack `performance`.
+  const now = options.now ?? Date.now;
+  const schedule =
+    options.schedule ??
+    ((fn: () => void, ms: number) => {
+      const timer = setTimeout(fn, ms);
+      return () => clearTimeout(timer);
+    });
+
+  let stopped = false;
+  let cancelTimer = () => {};
+  let previous: Sample | undefined;
+
+  const tick = async (delay: number) => {
+    // Stamp the sample as netstat starts, so a late exit on a busy host does not skew the interval.
+    const at = now();
+    const counters = await run(NETSTAT, ["-ibn"])
+      .then(parseNetstat)
+      .catch(() => undefined);
+    if (stopped) return;
+    // Scheduled before reporting, so nothing the callback does can end the refresh.
+    cancelTimer = schedule(() => void tick(REFRESH_MS), delay);
+
+    let rates: Map<string, Rate> | undefined;
+    if (!counters) {
+      // Show no rate rather than a stale one, but keep the last good sample so the next one
+      // yields a rate straight away.
+      rates = new Map();
+    } else {
+      const current = { at, counters };
+      if (previous) rates = ratesBetween(previous, current);
+      previous = current;
+    }
+    try {
+      if (rates) onRates(rates);
+    } catch {
+      // The view's setState; a throw there is not ours to handle.
+    }
+  };
+  void tick(FIRST_RATE_MS);
+
+  return () => {
+    stopped = true;
+    cancelTimer();
+  };
 }

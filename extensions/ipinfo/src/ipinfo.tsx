@@ -1,7 +1,7 @@
 import { Action, ActionPanel, Color, Icon, Keyboard, List } from "@raycast/api";
 import { useEffect, useState } from "react";
 import { fetchPublicInfo } from "./lib/public";
-import { getLocalInterfaces, measureRates, type LocalInterface, type Rate } from "./lib/local";
+import { getLocalInterfaces, watchRates, type LocalInterface, type Rate } from "./lib/local";
 import {
   type LocalState,
   type PublicState,
@@ -44,7 +44,7 @@ const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export default function Command() {
   const [pub, setPub] = useState<PublicState>({ status: "loading" });
   const [local, setLocal] = useState<LocalState>({ status: "loading" });
-  // undefined while the two samples a second apart are still being taken
+  // undefined until the first rate
   const [rates, setRates] = useState<Map<string, Rate>>();
 
   useEffect(() => {
@@ -64,13 +64,10 @@ export default function Command() {
       ),
       setLocal,
     );
-    // Best-effort, like the other lookups: without netstat the rows just carry no rate.
-    settle(
-      measureRates().catch(() => new Map<string, Rate>()),
-      setRates,
-    );
+    const stopRates = watchRates(setRates);
     return () => {
       cancelled = true;
+      stopRates();
     };
   }, []);
 

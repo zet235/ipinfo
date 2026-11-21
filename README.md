@@ -28,7 +28,7 @@
 - **iPhone / iPad tethering**: USB or Bluetooth Personal Hotspot, with its router
 - **VPN**: WireGuard, Cloudflare WARP (Zero Trust org), IPSec… with the profile name and a green **Connected** badge
 - **Default route**: a tag on the interface your traffic actually leaves through
-- **Traffic**: each interface's current download and upload rate, or **idle**, measured over one second
+- **Traffic**: each interface's download and upload rate, or **idle**, refreshed every 3 seconds while open
 - **Other**: remaining interfaces with an IPv4 (unnamed `utun*`, VM `bridge*`, …)
 
 - <kbd>↵</kbd> copies the highlighted value.
@@ -101,7 +101,7 @@ Everything local comes from built-in macOS tools, run without a shell and withou
 | Interfaces, IPv4, link type | `/sbin/ifconfig -v` |
 | Wi-Fi / Ethernet / iPhone names | `/usr/sbin/networksetup -listallhardwareports` (the link type covers adapters named after their chip) |
 | SSID, router | `/usr/sbin/ipconfig getsummary <device>` (Wi-Fi, Ethernet, tethering) |
-| Traffic rate | `/usr/sbin/netstat -ibn`, sampled twice one second apart |
+| Traffic rate | `/usr/sbin/netstat -ibn`, sampled on open, after 1 s, then every 3 s |
 | VPN profiles | `/usr/sbin/scutil --nc list` / `--nc status <id>` |
 | System-extension tunnels (WARP) | `scutil` → `State:/Network/Service/*/IPv4` |
 | Default route | `scutil` → `State:/Network/Global/IPv4` |
