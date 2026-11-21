@@ -48,12 +48,20 @@ bridge100: 172.30.31.3
 
 ### Tinycast — from GitHub
 
-This repository is a Tinycast registry (laid out like `raycast/extensions`, one folder per extension).
+Needs Node.js and a package manager (npm, pnpm, Yarn or Bun).
 
-1. Settings → Extensions → Registries → **Add Registry…** → `https://github.com/zet235/ipinfo`
-2. Install → search **ipinfo** → install. Tinycast downloads `extensions/ipinfo` and builds it locally.
+1. Settings → Extensions → **Install from GitHub** → **Install…**
+2. Paste the extension's folder link, not the bare repository:
 
-To update, install it again from the same search.
+   ```text
+   https://github.com/zet235/ipinfo/tree/main/extensions/ipinfo
+   ```
+
+   `zet235/ipinfo` alone points at the repository root, which has no `package.json`, so Tinycast
+   reports "That download didn't contain a Raycast extension."
+3. **Install**. Tinycast downloads `extensions/ipinfo`, builds it locally and keeps only the build.
+
+To update, install it again with the same link.
 
 ### Raycast
 
