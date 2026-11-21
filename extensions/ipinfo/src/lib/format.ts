@@ -1,5 +1,6 @@
 import type { PublicInfo } from "./public";
 import type { LocalInterface } from "./local";
+import type { Rate } from "./local";
 
 export type PublicState =
   { status: "loading" } | { status: "ok"; info: PublicInfo } | { status: "error"; message: string };
@@ -53,7 +54,29 @@ export function publicRows(state: PublicState): Row[] {
   return rows;
 }
 
-export function interfaceRow(i: LocalInterface): Row {
+/** Below this many bytes a second in both directions a link is idle: mDNS and ARP chatter never stops. */
+const IDLE_BYTES_PER_SECOND = 1000;
+
+const UNITS = ["B", "KB", "MB", "GB"];
+
+/** One decimal below 10 (bytes always whole); rounding first, so 999.6 KB/s reads 1.0 MB/s. */
+function bytesPerSecond(n: number): string {
+  let value = n;
+  for (let unit = 0; ; unit++) {
+    const text = unit > 0 && value < 9.95 ? value.toFixed(1) : String(Math.round(value));
+    if (Number(text) < 1000 || unit === UNITS.length - 1) return `${text} ${UNITS[unit]}/s`;
+    value /= 1000;
+  }
+}
+
+/** `↓ 1.2 MB/s  ↑ 85 KB/s`, or `idle`. Decimal units, as Finder and Activity Monitor use. */
+export function rateText(rate: Rate): string {
+  if (rate.down < IDLE_BYTES_PER_SECOND && rate.up < IDLE_BYTES_PER_SECOND) return "idle";
+  return `↓ ${bytesPerSecond(rate.down)}  ↑ ${bytesPerSecond(rate.up)}`;
+}
+
+/** `rate` is "measuring" until the samples are in, then the interface's rate (none if netstat had no row for it). */
+export function interfaceRow(i: LocalInterface, rate?: Rate | "measuring"): Row {
   const parts: string[] = [];
   if (i.ssid) parts.push(`SSID: ${clean(i.ssid)}`);
   if (i.router) parts.push(`Router ${clean(i.router)}`);
@@ -65,6 +88,8 @@ export function interfaceRow(i: LocalInterface): Row {
     subtitle: parts.join(" · ") || undefined,
     tag: clean(i.device),
   };
+  // A decoration: "…" while measured, rather than holding the list's spinner.
+  if (rate) row.accessory = rate === "measuring" ? "…" : rateText(rate);
   // A vpn row only exists because the tunnel has an IPv4, so it is up by construction.
   if (i.kind === "vpn") row.connected = true;
   if (i.primary) row.primary = true;

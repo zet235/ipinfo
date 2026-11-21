@@ -1,7 +1,7 @@
 import { Action, ActionPanel, Color, Icon, Keyboard, List } from "@raycast/api";
 import { useEffect, useState } from "react";
 import { fetchPublicInfo } from "./lib/public";
-import { getLocalInterfaces, type LocalInterface } from "./lib/local";
+import { getLocalInterfaces, measureRates, type LocalInterface, type Rate } from "./lib/local";
 import {
   type LocalState,
   type PublicState,
@@ -44,22 +44,31 @@ const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export default function Command() {
   const [pub, setPub] = useState<PublicState>({ status: "loading" });
   const [local, setLocal] = useState<LocalState>({ status: "loading" });
+  // undefined while the two samples a second apart are still being taken
+  const [rates, setRates] = useState<Map<string, Rate>>();
 
   useEffect(() => {
     let cancelled = false;
-    fetchPublicInfo()
-      .then((info) => !cancelled && setPub({ status: "ok", info }))
-      .catch((e: unknown) => !cancelled && setPub({ status: "error", message: messageOf(e) }));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    getLocalInterfaces()
-      .then((ifaces) => !cancelled && setLocal({ status: "ok", ifaces }))
-      .catch((e: unknown) => !cancelled && setLocal({ status: "error", message: messageOf(e) }));
+    const settle = <T,>(lookup: Promise<T>, set: (value: T) => void) => lookup.then((v) => !cancelled && set(v));
+    settle(
+      fetchPublicInfo().then(
+        (info): PublicState => ({ status: "ok", info }),
+        (e: unknown): PublicState => ({ status: "error", message: messageOf(e) }),
+      ),
+      setPub,
+    );
+    settle(
+      getLocalInterfaces().then(
+        (ifaces): LocalState => ({ status: "ok", ifaces }),
+        (e: unknown): LocalState => ({ status: "error", message: messageOf(e) }),
+      ),
+      setLocal,
+    );
+    // Best-effort, like the other lookups: without netstat the rows just carry no rate.
+    settle(
+      measureRates().catch(() => new Map<string, Rate>()),
+      setRates,
+    );
     return () => {
       cancelled = true;
     };
@@ -102,6 +111,8 @@ export default function Command() {
   const sectionTitle = (i: LocalInterface) =>
     clean((labelCounts.get(i.label) ?? 0) > 1 ? `${i.label} (${i.device})` : i.label);
 
+  const ifaceRow = (i: LocalInterface) => interfaceRow(i, rates ? rates.get(i.device) : "measuring");
+
   const pubRows = publicRows(pub);
 
   return (
@@ -114,11 +125,11 @@ export default function Command() {
       {local.status === "error" && <List.Section title="Local">{renderRow(localErrorRow(local.message))}</List.Section>}
       {named.map((i) => (
         <List.Section key={i.device} title={sectionTitle(i)}>
-          {renderRow(interfaceRow(i))}
+          {renderRow(ifaceRow(i))}
         </List.Section>
       ))}
       {others.length > 0 && (
-        <List.Section title="Other Interfaces">{others.map((i) => renderRow(interfaceRow(i)))}</List.Section>
+        <List.Section title="Other Interfaces">{others.map((i) => renderRow(ifaceRow(i)))}</List.Section>
       )}
     </List>
   );

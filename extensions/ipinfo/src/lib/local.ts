@@ -34,6 +34,7 @@ const IPCONFIG = "/usr/sbin/ipconfig";
 const SCUTIL = "/usr/sbin/scutil";
 /** Root-owned symlink created by the Cloudflare WARP installer; no PATH fallback. */
 const WARP_CLI = "/usr/local/bin/warp-cli";
+const NETSTAT = "/usr/sbin/netstat";
 
 const TIMEOUT_MS = 2000;
 const MAX_OUTPUT = 1 << 20;
@@ -343,4 +344,75 @@ export async function getLocalInterfaces(run: Runner = defaultRunner): Promise<L
   });
 
   return result.sort((a, b) => ORDER[a.kind] - ORDER[b.kind] || a.device.localeCompare(b.device));
+}
+
+// MARK: - Traffic
+
+/** Gap between the two counter samples a rate is measured over. */
+const INTERVAL_MS = 1000;
+
+interface Counters {
+  rx: number;
+  tx: number;
+}
+
+/** Bytes per second. */
+export interface Rate {
+  down: number;
+  up: number;
+}
+
+/**
+ * `netstat -ibn` → device → cumulative bytes received and sent, from each interface's `<Link#>` row.
+ * The link-address column is blank for tunnels, so the counters are read from the right.
+ */
+export function parseNetstat(text: string): Map<string, Counters> {
+  const counters = new Map<string, Counters>();
+  for (const line of text.split("\n")) {
+    const fields = line.trim().split(/\s+/);
+    if (!fields[2]?.startsWith("<Link#") || fields.length < 10) continue;
+    // … Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll
+    const rx = Number(fields[fields.length - 5]);
+    const tx = Number(fields[fields.length - 2]);
+    if (!Number.isSafeInteger(rx) || !Number.isSafeInteger(tx)) continue;
+    counters.set(fields[0].replace(/\*$/, ""), { rx, tx });
+  }
+  return counters;
+}
+
+interface MeasureOptions {
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+}
+
+/** Samples the counters twice, INTERVAL_MS apart, and returns each interface's current rate. */
+export async function measureRates(
+  run: Runner = defaultRunner,
+  options: MeasureOptions = {},
+): Promise<Map<string, Rate>> {
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  // Date.now, not performance.now: the Tinycast host is not Node and may lack `performance`.
+  const now = options.now ?? Date.now;
+
+  // Stamp each sample as its netstat starts, so a late exit on a busy host skews neither end, and
+  // divide by the time that really passed: the sleep timer can wake late too.
+  const start = now();
+  const before = parseNetstat(await run(NETSTAT, ["-ibn"]));
+  await sleep(INTERVAL_MS);
+  const end = now();
+  const after = parseNetstat(await run(NETSTAT, ["-ibn"]));
+  const seconds = (end - start) / 1000;
+
+  const rates = new Map<string, Rate>();
+  if (seconds <= 0) return rates;
+  for (const [device, latest] of after) {
+    const begin = before.get(device);
+    if (!begin) continue;
+    const down = latest.rx - begin.rx;
+    const up = latest.tx - begin.tx;
+    // A counter that went backwards means the interface was recreated between samples.
+    if (down < 0 || up < 0) continue;
+    rates.set(device, { down: down / seconds, up: up / seconds });
+  }
+  return rates;
 }

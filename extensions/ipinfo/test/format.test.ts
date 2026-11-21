@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { publicRows, interfaceRow, localErrorRow, asText, type PublicState } from "../src/lib/format.ts";
+import { publicRows, interfaceRow, localErrorRow, asText, rateText, type PublicState } from "../src/lib/format.ts";
 import type { LocalInterface } from "../src/lib/local.ts";
 
 const OK: PublicState = {
@@ -186,4 +186,22 @@ test("a hostile public payload is sanitised too", () => {
     },
   });
   assert.equal(rows[1].subtitle, "EvilOrg");
+});
+
+test("rateText shows download and upload in decimal units, and idle below 1 KB/s both ways", () => {
+  assert.equal(rateText({ down: 1_234_567, up: 85_000 }), "↓ 1.2 MB/s  ↑ 85 KB/s");
+  assert.equal(rateText({ down: 0, up: 2_500 }), "↓ 0 B/s  ↑ 2.5 KB/s");
+  assert.equal(rateText({ down: 3_400_000_000, up: 999 }), "↓ 3.4 GB/s  ↑ 999 B/s");
+  // rounding never shows 1000 of a unit or 10.0
+  assert.equal(rateText({ down: 999_600, up: 9_960 }), "↓ 1.0 MB/s  ↑ 10 KB/s");
+  assert.equal(rateText({ down: 999.6 * 1000 ** 3, up: 1000 }), "↓ 1000 GB/s  ↑ 1.0 KB/s");
+  // mDNS and ARP chatter keep an unused link at a few hundred bytes a second
+  assert.equal(rateText({ down: 999, up: 420 }), "idle");
+});
+
+test("interfaceRow shows the rate as its accessory only once one was measured", () => {
+  assert.equal(interfaceRow(ETHERNET).accessory, undefined);
+  assert.equal(interfaceRow(ETHERNET, "measuring").accessory, "…");
+  assert.equal(interfaceRow(ETHERNET, { down: 0, up: 0 }).accessory, "idle");
+  assert.equal(interfaceRow(WIFI, { down: 1_234_567, up: 85_000 }).accessory, "↓ 1.2 MB/s  ↑ 85 KB/s");
 });
