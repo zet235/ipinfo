@@ -191,7 +191,7 @@ function stubRunner(stubs: Stubs, calls: string[] = []): Runner {
   };
 }
 
-const find = (ifaces: { device: string }[], device: string) => ifaces.find((i) => i.device === device);
+const find = <T extends { device: string }>(ifaces: T[], device: string) => ifaces.find((i) => i.device === device);
 
 test("parseVpnList keeps only connected services, with id, name and provider", () => {
   assert.deepEqual(parseVpnList(NC_LIST), [
@@ -242,14 +242,48 @@ test("parseHardwarePorts maps device to port name", () => {
   );
 });
 
+test("parseIfconfig reads the type line `ifconfig -v` adds to each interface", () => {
+  const verbose = `en15: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500 index 38
+\teflags=400008c0<ACCEPT_RTADV,TXSTART,ARPLL,FASTLN_ON>
+\tinet 192.168.7.78 netmask 0xffffff00 broadcast 192.168.7.255
+\ttype: USB Ethernet
+\tagent domain:Skywalk type:NetIf flags:0xa443 desc:"Userspace Networking"
+utun4: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1380 index 21
+\tinet 100.64.0.9 --> 100.64.0.9 netmask 0xffffffff
+`;
+  assert.deepEqual(
+    [...parseIfconfig(verbose)],
+    [
+      ["en15", { ipv4: "192.168.7.78", type: "USB Ethernet" }],
+      ["utun4", { ipv4: "100.64.0.9" }],
+    ],
+  );
+});
+
+test("an unnamed device is never promoted by its type: VM bridges stay other", async () => {
+  const run = stubRunner({
+    networksetup: HW,
+    ifconfig: `${IFCONFIG}vmenet0: flags=8963<UP,BROADCAST,SMART,RUNNING,PROMISC,SIMPLEX,MULTICAST> mtu 1500
+\tinet 192.168.64.1 netmask 0xffffff00 broadcast 192.168.64.255
+\ttype: Ethernet
+`,
+  });
+  assert.deepEqual(find(await getLocalInterfaces(run), "vmenet0"), {
+    device: "vmenet0",
+    kind: "other",
+    label: "vmenet0",
+    ipv4: "192.168.64.1",
+  });
+});
+
 test("parseIfconfig keeps only interfaces with an IPv4, skips lo0", () => {
   assert.deepEqual(
     [...parseIfconfig(IFCONFIG)],
     [
-      ["en3", "10.0.0.5"],
-      ["en0", "192.168.0.42"],
-      ["utun4", "100.64.0.9"],
-      ["bridge100", "172.30.31.3"],
+      ["en3", { ipv4: "10.0.0.5" }],
+      ["en0", { ipv4: "192.168.0.42" }],
+      ["utun4", { ipv4: "100.64.0.9" }],
+      ["bridge100", { ipv4: "172.30.31.3" }],
     ],
   );
 });
@@ -259,7 +293,7 @@ test("parseIfconfig keeps the first of several inet lines on one device", () => 
 \tinet 192.168.0.42 netmask 0xffffff00 broadcast 192.168.0.255
 \tinet 169.254.1.1 netmask 0xffff0000 broadcast 169.254.255.255
 `;
-  assert.deepEqual([...parseIfconfig(text)], [["en0", "192.168.0.42"]]);
+  assert.deepEqual([...parseIfconfig(text)], [["en0", { ipv4: "192.168.0.42" }]]);
 });
 
 test("parseWifiSummary reads SSID and Router", () => {
@@ -355,6 +389,31 @@ test("an unnamed link-local interface is kept when it carries the default route"
   const en16 = (await getLocalInterfaces(run)).find((i) => i.device === "en16");
   assert.deepEqual(en16, { device: "en16", kind: "other", label: "en16", ipv4: "169.254.169.235", primary: true });
 });
+
+// Vendors name USB ports after the chip or its speeds; `ifconfig -v` says what the port really is.
+for (const [port, type, expected] of [
+  ["AX88179A", "USB Ethernet", { kind: "ethernet", router: "10.0.0.1" }],
+  ["USB 10/100/1G/2.5G LAN", "USB Ethernet", { kind: "ethernet", router: "10.0.0.1" }],
+  // a phone's USB link also reports Ethernet: the name has to win
+  ["iPhone USB", "USB Ethernet", { kind: "tether", router: "10.0.0.1" }],
+  // no `type:` line (older macOS): fall back to the name
+  ["Ethernet Adapter (en3)", undefined, { kind: "ethernet", router: "10.0.0.1" }],
+  ["Mystery Adapter", undefined, { kind: "other" }],
+] as const) {
+  test(`port "${port}" with type ${type ?? "(none)"} is ${expected.kind}`, async () => {
+    const run = stubRunner({
+      networksetup: HW.replace("Ethernet Adapter (en3)", port),
+      ifconfig: type ? IFCONFIG.replace("\tether 00:00:00:00:00:03", `\ttype: ${type}\n$&`) : IFCONFIG,
+      ipconfig: { en3: ETHERNET_SUMMARY },
+    });
+    assert.deepEqual(find(await getLocalInterfaces(run), "en3"), {
+      device: "en3",
+      label: port,
+      ipv4: "10.0.0.5",
+      ...expected,
+    });
+  });
+}
 
 test("getLocalInterfaces orders wifi, ethernet, vpn, other and enriches wifi and vpn", async () => {
   const calls: string[] = [];

@@ -111,9 +111,16 @@ export function parseHardwarePorts(text: string): Map<string, string> {
   return ports;
 }
 
-/** `ifconfig` → device → first IPv4 address; interfaces without one (and lo0) are omitted. */
-export function parseIfconfig(text: string): Map<string, string> {
-  const addrs = new Map<string, string>();
+export interface IfconfigEntry {
+  ipv4: string;
+  /** macOS's own word for the link ("Wi-Fi", "USB Ethernet", …), from `ifconfig -v`. */
+  type?: string;
+}
+
+/** `ifconfig -v` → device → first IPv4 and link type; interfaces without an IPv4 (and lo0) are omitted. */
+export function parseIfconfig(text: string): Map<string, IfconfigEntry> {
+  const ipv4s = new Map<string, string>();
+  const types = new Map<string, string>();
   let device: string | undefined;
   for (const line of text.split("\n")) {
     const head = line.match(/^([A-Za-z0-9._-]+): flags=/);
@@ -121,12 +128,19 @@ export function parseIfconfig(text: string): Map<string, string> {
       device = head[1];
       continue;
     }
+    if (!device) continue;
     const inet = line.match(/^\s+inet (\d+\.\d+\.\d+\.\d+)/);
-    if (inet && device && device !== "lo0" && !addrs.has(device)) {
-      addrs.set(device, inet[1]);
-    }
+    if (inet && !ipv4s.has(device)) ipv4s.set(device, inet[1]);
+    const type = line.match(/^\s+type: (.+)$/);
+    if (type) types.set(device, type[1].trim());
   }
-  return addrs;
+  const result = new Map<string, IfconfigEntry>();
+  for (const [dev, ipv4] of ipv4s) {
+    if (dev === "lo0") continue;
+    const type = types.get(dev);
+    result.set(dev, type ? { ipv4, type } : { ipv4 });
+  }
+  return result;
 }
 
 /** `ipconfig getsummary <dev>` → SSID and Router if present. */
@@ -193,12 +207,19 @@ export function parseWarpOrganization(text: string): string | undefined {
   return text.match(/^Organization: (.+)$/m)?.[1].trim();
 }
 
-function kindOf(portName: string | undefined): InterfaceKind {
+/**
+ * Only a networksetup port is classified: VM bridges and Apple's internal links report Ethernet or
+ * Wi-Fi types too. The name decides first, because an iPhone's USB link also reports "USB Ethernet";
+ * the type then catches adapters named after their chip or speed ("AX88179A", "USB 10/100/1G/2.5G LAN").
+ */
+function kindOf(portName: string | undefined, type: string | undefined): InterfaceKind {
   if (!portName) return "other";
   if (/Wi-Fi/i.test(portName)) return "wifi";
   // "iPhone USB", "iPad USB", "Bluetooth PAN": a phone sharing its cellular connection
   if (/iPhone|iPad|Bluetooth PAN/i.test(portName)) return "tether";
   if (/Ethernet/i.test(portName)) return "ethernet";
+  if (type === "Wi-Fi") return "wifi";
+  if (type === "Ethernet" || type === "USB Ethernet") return "ethernet";
   return "other";
 }
 
@@ -275,7 +296,7 @@ async function vpnsByDevice(run: Runner, ncList?: string, serviceList?: string):
 export async function getLocalInterfaces(run: Runner = defaultRunner): Promise<LocalInterface[]> {
   const [hardware, ifconfig, ncList, serviceList, globalIpv4] = await Promise.allSettled([
     run(NETWORKSETUP, ["-listallhardwareports"]),
-    run(IFCONFIG, []),
+    run(IFCONFIG, ["-v"]),
     run(SCUTIL, ["--nc", "list"]),
     run(SCUTIL, [], SERVICE_LIST),
     run(SCUTIL, [], GLOBAL_IPV4),
@@ -286,13 +307,13 @@ export async function getLocalInterfaces(run: Runner = defaultRunner): Promise<L
   }
   // networksetup is best-effort; every device just becomes "other" without it
   const ports = hardware.status === "fulfilled" ? parseHardwarePorts(hardware.value) : new Map<string, string>();
-  const addrs = parseIfconfig(ifconfig.value);
+  const links = parseIfconfig(ifconfig.value);
   const primary = globalIpv4.status === "fulfilled" ? parsePrimaryInterface(globalIpv4.value) : undefined;
   const vpns = await vpnsByDevice(run, fulfilled(ncList), fulfilled(serviceList));
 
   const result: LocalInterface[] = [];
   const summaryDevices: string[] = [];
-  for (const [device, ipv4] of addrs) {
+  for (const [device, { ipv4, type }] of links) {
     const vpn = vpns.get(device);
     if (vpn) {
       // A VPN row is "up" by construction: it only exists because ifconfig gave the tunnel an IPv4.
@@ -303,7 +324,7 @@ export async function getLocalInterfaces(run: Runner = defaultRunner): Promise<L
       continue;
     }
     const port = ports.get(device);
-    const kind = kindOf(port);
+    const kind = kindOf(port, type);
     // Unnamed link-local interfaces (an iPhone's companion link, idle adapters) are noise; on a
     // named Wi-Fi/Ethernet port the same address is a useful "no DHCP lease" signal, so keep it.
     if (kind === "other" && LINK_LOCAL.test(ipv4) && device !== primary) continue;

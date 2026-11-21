@@ -97,8 +97,8 @@ Everything local comes from built-in macOS tools, run without a shell and withou
 
 | Data | Source |
 |---|---|
-| Interfaces + IPv4 | `/sbin/ifconfig` |
-| Wi-Fi / Ethernet / iPhone names | `/usr/sbin/networksetup -listallhardwareports` |
+| Interfaces, IPv4, link type | `/sbin/ifconfig -v` |
+| Wi-Fi / Ethernet / iPhone names | `/usr/sbin/networksetup -listallhardwareports` (the link type covers adapters named after their chip) |
 | SSID, router | `/usr/sbin/ipconfig getsummary <device>` (Wi-Fi, Ethernet, tethering) |
 | VPN profiles | `/usr/sbin/scutil --nc list` / `--nc status <id>` |
 | System-extension tunnels (WARP) | `scutil` → `State:/Network/Service/*/IPv4` |
